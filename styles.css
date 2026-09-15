@@ -91,6 +91,12 @@ a {
   padding: 10px 16px;
 }
 
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .ghost-btn {
   background: transparent;
   color: var(--ink-soft);
@@ -249,6 +255,34 @@ h1 {
 
 .weather-bar strong {
   color: var(--moss);
+}
+
+.weather-source {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.map-wrap {
+  margin: 12px 0 4px;
+}
+
+.map-frame {
+  width: 100%;
+  height: 220px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #e8efe6;
+}
+
+.map-wrap .row-actions {
+  margin-top: 10px;
+}
+
+.map-wrap .secondary-btn,
+.map-wrap .ghost-btn {
+  display: inline-flex;
+  align-items: center;
 }
 
 .cards {
