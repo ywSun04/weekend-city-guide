@@ -29,7 +29,7 @@ body {
 }
 
 body {
-  padding-bottom: calc(84px + env(safe-area-inset-bottom));
+  padding-bottom: calc(132px + env(safe-area-inset-bottom));
 }
 
 button,
@@ -48,6 +48,7 @@ a {
   width: min(1080px, calc(100% - 24px));
   margin: 0 auto;
   padding-top: 18px;
+  padding-bottom: 24px;
 }
 
 .topbar {
@@ -301,11 +302,9 @@ h1 {
   cursor: pointer;
 }
 
-.route-list span {
-  display: block;
-  color: var(--ink-soft);
-  font-size: 13px;
-  margin-top: 4px;
+.route-list a {
+  display: inline-flex;
+  margin-top: 8px;
 }
 
 .rain-panel {

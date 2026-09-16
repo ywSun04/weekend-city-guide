@@ -39,21 +39,39 @@ function demoStats(id) {
   return { gone: 48 + (hash % 160), fav: 16 + (hash % 72) };
 }
 
+const DEMO_NOTE = "演示数据，真实出行请以场馆为准。";
+
+function durationText(item) {
+  return item.duration || "约 2 小时";
+}
+
+function extraCosts(commute, people) {
+  const perTransit = commute <= 18 ? 4 : commute <= 32 ? 6 : 8;
+  return { transit: perTransit * Math.max(1, people), food: 50 };
+}
+
 function enrich(item, prefs) {
   const commute = commuteMinutes(item);
   const needReserve = item.category === "展览" || item.category === "演出";
   const crowding = item.indoor ? (needReserve ? "建议预约，中等拥挤" : "室内舒适") : "露天，无需预约";
   const ticket = needReserve ? (item.cost <= 0 ? "需预约 · 免费票" : "需预约 · 余票示意充足") : "即到即玩";
+  const extras = extraCosts(commute, prefs.people);
   return {
     commute,
     needReserve,
     crowding,
     ticket,
     total: item.cost * Math.max(1, prefs.people),
+    transit: extras.transit,
+    food: extras.food,
     dateLabel: weekendDateLabel(prefs),
     clock: clockText(item.time),
     stats: demoStats(item.id)
   };
+}
+
+function demoHint() {
+  return `<p class="weather-source">${DEMO_NOTE}</p>`;
 }
 
 function mapBlock(item, prefs) {
@@ -66,7 +84,8 @@ function mapBlock(item, prefs) {
     <div class="route-card">
       <div class="kicker">静态路线卡 · 不用等地图加载</div>
       <h3>${esc(item.meetup)}</h3>
-      <p class="lede">${esc(info.dateLabel)} ${info.clock} 集合 · 距你约 ${info.commute} 分钟（按城市中心估算）</p>
+      <p class="lede">${esc(info.dateLabel)} ${info.clock} 集合 · 市中心出发约 ${info.commute} 分钟</p>
+      ${demoHint()}
       <div class="row-actions">
         <a class="primary-btn" href="${amapLink(item.lat, item.lon, item.meetup)}" target="_blank" rel="noopener">高德导航</a>
       </div>
@@ -75,11 +94,7 @@ function mapBlock(item, prefs) {
 }
 
 function routeStops(list) {
-  return (list || [])
-    .filter((item) => item.lat != null && item.lon != null)
-    .slice()
-    .sort((a, b) => parseClock(a.time) - parseClock(b.time))
-    .slice(0, 4);
+  return (list || []).filter((item) => item.lat != null && item.lon != null).slice(0, 4);
 }
 
 function routeSection(stops, prefs) {
@@ -89,19 +104,22 @@ function routeSection(stops, prefs) {
   return `
     <section class="panel">
       <span class="kicker">静态路线卡</span>
-      <h3>按时间串起来的 ${stops.length} 站</h3>
-      <p class="lede">不嵌地图，避免演示空白。坐标是估算点，点按钮用高德导航。</p>
+      <h3>周末候选集合</h3>
+      <p class="lede">这不是同一天连走的行程。每个点有自己的建议到场时间和游览时长，请只选其中一个出发。</p>
       <ol class="route-list">
         ${stops
           .map((item, index) => {
             const info = enrich(item, currentPrefs);
-            return `<li data-open="${item.id}"><b>${index + 1}. ${esc(item.title)}</b><span>${currentPrefs.weekendDay} ${info.clock} · 约 ${info.commute} 分钟 · ${esc(item.meetup)}</span></li>`;
+            return `<li>
+              <b>${index + 1}. ${esc(item.title)}</b>
+              <span>${info.clock} 建议到场 · 游览 ${esc(durationText(item))} · 市中心出发约 ${info.commute} 分钟</span>
+              <span>${esc(item.meetup)}</span>
+              <a class="ghost-btn" href="${amapLink(item.lat, item.lon, item.meetup)}" target="_blank" rel="noopener">高德导航</a>
+            </li>`;
           })
           .join("")}
       </ol>
-      <div class="row-actions">
-        <a class="primary-btn" href="${amapRoute(stops)}" target="_blank" rel="noopener">高德走这条线</a>
-      </div>
+      ${demoHint()}
     </section>
   `;
 }
@@ -110,7 +128,7 @@ function reasons(item, prefs, weather) {
   const info = enrich(item, prefs);
   const chips = [peopleReason(prefs.people), item.cost <= 0 ? "免费" : `¥${item.cost}`];
   chips.push(item.indoor ? (weather.outdoorOk ? "室内" : "室内避雨") : "户外");
-  chips.push(`距你 ${info.commute} 分钟`);
+  chips.push(`市中心出发 ${info.commute} 分钟`);
   return chips;
 }
 
@@ -142,7 +160,7 @@ function planBSection(prefs, rec) {
   const b = enrich(alt, prefs);
   const commuteDelta = a.commute - b.commute;
   const commuteLine = commuteDelta > 0 ? `通勤少 ${commuteDelta} 分钟` : commuteDelta < 0 ? `通勤多 ${Math.abs(commuteDelta)} 分钟` : "通勤接近";
-  const budgetLine = a.total === b.total ? "总预算不变" : b.total < a.total ? `总预算少 ¥${a.total - b.total}` : `总预算多 ¥${b.total - a.total}`;
+  const budgetLine = a.total === b.total ? "票务预算不变" : b.total < a.total ? `票务预算少 ¥${a.total - b.total}` : `票务预算多 ¥${b.total - a.total}`;
   return `
     <section class="panel plan-b">
       <span class="kicker">Plan B</span>
@@ -178,7 +196,7 @@ function weatherBar(prefs, extra) {
         </div>
         <strong>${esc(current.text)}</strong>
         <div>${esc(current.tip)}</div>
-        <div class="weather-source">适用于 ${iso}（${esc(prefs.weekendDay)}）· ${weatherUpdatedText(bundle)}</div>
+        <div class="weather-source">适用于 ${iso}（${esc(prefs.weekendDay)}）· ${weatherUpdatedText(bundle)} · ${DEMO_NOTE}</div>
       </div>
       ${extra || ""}
     </section>
@@ -271,7 +289,9 @@ function cardHtml(item, prefs, weather, kind) {
       <p class="lede">${esc(item.desc)}</p>
       <div class="reason-row">${chips.map((chip) => `<span class="reason">${esc(chip)}</span>`).join("")}</div>
       <div class="meta">
-        <span class="price">${item.cost <= 0 ? "免费" : `人均 ¥${item.cost} · 总预算 ¥${info.total}`}</span>
+        <span class="price">${item.cost <= 0 ? "免费" : `人均 ¥${item.cost} · 活动票务预算 ¥${info.total}`}</span>
+        <span>预计交通 ¥${info.transit}</span>
+        <span>可选餐饮 ¥${info.food}</span>
         <span>${info.ticket}</span>
         <span>${info.crowding}</span>
       </div>
@@ -281,7 +301,7 @@ function cardHtml(item, prefs, weather, kind) {
 
 function rainCard(item, prefs) {
   const info = enrich(item, prefs);
-  return `<div class="list-item" data-open="${item.id}"><div><b>${esc(item.title)}</b><div class="lede">雨天备选 · ${formatCost(item.cost)} · 约 ${info.commute} 分钟 · ${esc(item.meetup)}</div></div><span class="tag">室内</span></div>`;
+  return `<div class="list-item" data-open="${item.id}"><div><b>${esc(item.title)}</b><div class="lede">雨天备选 · ${formatCost(item.cost)} · 市中心出发约 ${info.commute} 分钟 · ${esc(item.meetup)}</div></div><span class="tag">室内</span></div>`;
 }
 
 function renderHome() {
@@ -346,6 +366,7 @@ function renderResults() {
       <span class="kicker">${esc(prefs.city)} · ${esc(prefs.weekendDay)}</span>
       <h2>主推 ${rec.primary.length} 个，备选 ${rec.backup.length} 个</h2>
       <p class="lede">只展示完全匹配城市、兴趣、预算、人数${prefs.weatherSensitive && !rec.weather.outdoorOk ? "和室内避雨" : ""}的活动。不拿徒步凑数。</p>
+      ${demoHint()}
     </section>
     <section class="cards">${rec.primary.map((item) => cardHtml(item, prefs, rec.weather, "primary")).join("")}</section>
     ${
@@ -392,13 +413,14 @@ function renderDetail(id) {
         .join("")}</div>
       <div class="detail-grid">
         <div><span>日期</span><b>${esc(info.dateLabel)} ${info.clock}</b></div>
-        <div><span>通勤</span><b>约 ${info.commute} 分钟</b></div>
+        <div><span>通勤</span><b>市中心出发约 ${info.commute} 分钟</b></div>
         <div><span>预约 / 余票</span><b>${esc(info.ticket)}</b></div>
         <div><span>拥挤度</span><b>${esc(info.crowding)}</b></div>
-        <div><span>人均</span><b>${formatCost(item.cost)}</b></div>
-        <div><span>总预算</span><b>${item.cost <= 0 ? "免费" : `¥${info.total} / ${prefs.people} 人`}</b></div>
+        <div><span>活动票务预算</span><b>${item.cost <= 0 ? "免费" : `¥${info.total} / ${prefs.people} 人`}</b></div>
+        <div><span>预计交通 / 餐饮</span><b>交通 ¥${info.transit} · 可选餐饮 ¥${info.food}</b></div>
       </div>
-      <p class="lede">已去过 ${info.stats.gone} 人｜收藏 ${info.stats.fav}｜一句话攻略：${esc(item.vibe)}，${item.indoor ? "室内好集合" : "记得看天气"}。<span class="weather-source">人数为演示数据</span></p>
+      <p class="lede">已去过 ${info.stats.gone} 人｜收藏 ${info.stats.fav}｜一句话攻略：${esc(item.vibe)}，${item.indoor ? "室内好集合" : "记得看天气"}。</p>
+      ${demoHint()}
       ${mapBlock(item, prefs)}
       ${planBSection(prefs, rec)}
       <div class="row-actions">
