@@ -257,10 +257,63 @@ h1 {
   color: var(--moss);
 }
 
-.weather-source {
-  margin-top: 6px;
-  font-size: 12px;
+.weather-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.weather-day {
+  border: 1px solid #cfe0d3;
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 12px;
+  cursor: pointer;
+  color: var(--ink);
+}
+
+.weather-day.active {
+  background: var(--moss);
+  color: #fff;
+  border-color: var(--moss);
+}
+
+.route-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+  background: #f4f8f4;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  margin: 8px 0 12px;
+}
+
+.route-list {
+  margin: 0 0 12px;
+  padding-left: 0;
+  list-style: none;
+}
+
+.route-list li {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.route-list span {
+  display: block;
   color: var(--ink-soft);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.rain-panel {
+  background: #f7f1e6;
+}
+
+.empty .primary-btn {
+  margin-top: 12px;
 }
 
 .map-wrap {

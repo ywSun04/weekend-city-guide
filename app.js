@@ -63,7 +63,8 @@ function defaultPrefs() {
     budget: 150,
     people: 2,
     interests: ["展览", "市集"],
-    weatherSensitive: true
+    weatherSensitive: true,
+    weekendDay: "周六"
   };
 }
 
@@ -127,18 +128,36 @@ function cityMeta(name) {
   return GUIDE_DATA.cityMeta.find((item) => item.name === name) || GUIDE_DATA.cityMeta[0];
 }
 
-function fallbackWeather(city) {
-  return (
+function oneDayFallback(city, label) {
+  const base =
     GUIDE_DATA.weather[city] || {
-      day: "周六",
       sky: "多云",
       temp: 24,
       outdoorOk: true,
-      text: `${city}周六天气稍后更新`,
-      tip: "正在获取实时预报。",
-      source: "备用"
-    }
-  );
+      tip: "正在获取实时预报。"
+    };
+  const wet = !base.outdoorOk;
+  return {
+    day: label,
+    sky: base.sky,
+    temp: base.temp,
+    outdoorOk: base.outdoorOk,
+    rain: wet ? 60 : 20,
+    text: `${label}${base.sky} ${base.temp}°C${wet ? "，建议室内或备伞" : "，适合出门"}`,
+    tip: label === "周日" && wet ? "周日仍偏湿，室内展和剧场更稳妥。" : base.tip
+  };
+}
+
+function fallbackWeekend(city) {
+  return {
+    saturday: oneDayFallback(city, "周六"),
+    sunday: oneDayFallback(city, "周日"),
+    source: GUIDE_DATA.weather[city] ? "备用" : "备用"
+  };
+}
+
+function isWeekendBundle(weather) {
+  return Boolean(weather && weather.saturday && weather.sunday);
 }
 
 function wmoLabel(code) {
@@ -153,20 +172,33 @@ function wmoLabel(code) {
   return "雷雨";
 }
 
-function nextSaturdayIso() {
-  const now = new Date();
-  const date = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const day = date.getDay();
-  const add = day === 6 ? 0 : (6 - day + 7) % 7;
-  date.setDate(date.getDate() + add);
+function isoFromDate(date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const dayNum = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${dayNum}`;
 }
 
+function nextWeekendIsos() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  const day = date.getDay();
+  const add = day === 6 ? 0 : (6 - day + 7) % 7;
+  date.setDate(date.getDate() + add);
+  const saturday = isoFromDate(date);
+  const sundayDate = new Date(date);
+  sundayDate.setDate(date.getDate() + 1);
+  return { saturday, sunday: isoFromDate(sundayDate) };
+}
+
 function getWeather(city) {
-  return weatherMemory[city] || fallbackWeather(city);
+  const stored = weatherMemory[city];
+  return isWeekendBundle(stored) ? stored : fallbackWeekend(city);
+}
+
+function dayWeather(prefs) {
+  const bundle = getWeather(prefs.city);
+  return prefs.weekendDay === "周日" ? bundle.sunday : bundle.saturday;
 }
 
 function cacheWeather(city, weather) {
@@ -179,21 +211,19 @@ function cacheWeather(city, weather) {
 function restoreWeatherCache() {
   const all = load(STORAGE.weather, {});
   Object.keys(all).forEach((city) => {
-    if (all[city] && Date.now() - all[city].fetchedAt < WEATHER_TTL) {
+    if (
+      all[city] &&
+      Date.now() - all[city].fetchedAt < WEATHER_TTL &&
+      isWeekendBundle(all[city].weather)
+    ) {
       weatherMemory[city] = all[city].weather;
     }
   });
 }
 
-async function fetchWeekendWeather(city) {
-  const meta = cityMeta(city);
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${meta.lat}&longitude=${meta.lon}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FShanghai&forecast_days=8`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("weather http");
-  const json = await res.json();
-  const iso = nextSaturdayIso();
+function parseDailyDay(json, iso, label) {
   const index = (json.daily.time || []).indexOf(iso);
-  const i = index >= 0 ? index : 0;
+  const i = index >= 0 ? index : label === "周日" ? 1 : 0;
   const code = json.daily.weather_code[i];
   const max = Math.round(json.daily.temperature_2m_max[i]);
   const min = Math.round(json.daily.temperature_2m_min[i]);
@@ -205,21 +235,34 @@ async function fetchWeekendWeather(city) {
     ? `最高 ${max}°C / 最低 ${min}°C，降水概率 ${rain}%。户外和市集体感还可以。`
     : `最高 ${max}°C / 最低 ${min}°C，降水概率 ${rain}%。展览和剧场更稳妥，徒步请换备选。`;
   return {
-    day: "周六",
+    day: label,
     sky,
     temp: max,
     outdoorOk,
     rain,
-    text: `周六${sky} ${max}°C${wet ? "，建议室内或备伞" : "，适合出门"}`,
-    tip,
+    text: `${label}${sky} ${max}°C${wet ? "，建议室内或备伞" : "，适合出门"}`,
+    tip
+  };
+}
+
+async function fetchWeekendWeather(city) {
+  const meta = cityMeta(city);
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${meta.lat}&longitude=${meta.lon}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Asia%2FShanghai&forecast_days=8`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("weather http");
+  const json = await res.json();
+  const days = nextWeekendIsos();
+  return {
+    saturday: parseDailyDay(json, days.saturday, "周六"),
+    sunday: parseDailyDay(json, days.sunday, "周日"),
     source: "Open-Meteo"
   };
 }
 
 async function ensureWeather(city) {
-  if (weatherMemory[city]) return false;
+  if (isWeekendBundle(weatherMemory[city])) return false;
   const cached = load(STORAGE.weather, {})[city];
-  if (cached && Date.now() - cached.fetchedAt < WEATHER_TTL) {
+  if (cached && Date.now() - cached.fetchedAt < WEATHER_TTL && isWeekendBundle(cached.weather)) {
     weatherMemory[city] = cached.weather;
     return true;
   }
@@ -231,7 +274,7 @@ async function ensureWeather(city) {
       return true;
     })
     .catch(() => {
-      cacheWeather(city, { ...fallbackWeather(city), source: "备用" });
+      cacheWeather(city, fallbackWeekend(city));
       delete weatherInflight[city];
       return true;
     });
@@ -299,13 +342,170 @@ function mapBlock(lat, lon, name) {
   `;
 }
 
-function weatherBar(weather, extra = "") {
+function parseClock(time) {
+  const match = String(time || "").match(/(\d{1,2}):(\d{2})/);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : 0;
+}
+
+function routeStops(list) {
+  const timed = list.filter((item) => item.lat != null && item.lon != null).slice().sort((a, b) => parseClock(a.time) - parseClock(b.time));
+  const picked = [];
+  const seen = new Set();
+  timed.forEach((item) => {
+    if (picked.length >= 4) return;
+    if (!seen.has(item.category) || picked.length < 2) {
+      picked.push(item);
+      seen.add(item.category);
+    }
+  });
+  timed.forEach((item) => {
+    if (picked.length >= 4) return;
+    if (!picked.includes(item)) picked.push(item);
+  });
+  return picked.slice(0, 4);
+}
+
+function routeSvg(stops) {
+  if (stops.length < 2) return "";
+  const lats = stops.map((item) => item.lat);
+  const lons = stops.map((item) => item.lon);
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const minLon = Math.min(...lons);
+  const maxLon = Math.max(...lons);
+  const pad = 0.012;
+  const width = 100;
+  const height = 62;
+  const xy = (lon, lat) => {
+    const x = ((lon - minLon + pad) / (maxLon - minLon + pad * 2 || 1)) * width;
+    const y = (1 - (lat - minLat + pad) / (maxLat - minLat + pad * 2 || 1)) * height;
+    return [x.toFixed(1), y.toFixed(1)];
+  };
+  const points = stops.map((item) => xy(item.lon, item.lat));
+  const line = points.map((point) => point.join(",")).join(" ");
+  const dots = points
+    .map(
+      (point, index) =>
+        `<g><circle cx="${point[0]}" cy="${point[1]}" r="3.2" fill="#c44b2b" /><text x="${point[0]}" y="${Number(point[1]) + 1.1}" text-anchor="middle" fill="#fff" font-size="3.2">${index + 1}</text></g>`
+    )
+    .join("");
+  return `<svg class="route-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="周末多点路线图">${`<polyline fill="none" stroke="#9c3418" stroke-width="0.8" points="${line}" />${dots}`}</svg>`;
+}
+
+function amapRoute(stops) {
+  if (!stops.length) return "#";
+  if (stops.length === 1) return amapLink(stops[0].lat, stops[0].lon, stops[0].title);
+  const start = stops[0];
+  const end = stops[stops.length - 1];
+  const via = stops
+    .slice(1, -1)
+    .map((item) => `${item.lon},${item.lat}`)
+    .join(";");
+  const viaPart = via ? `&via=${via}` : "";
+  return `https://uri.amap.com/navigation?from=${start.lon},${start.lat},${encodeURIComponent(start.title)}&to=${end.lon},${end.lat},${encodeURIComponent(end.title)}${viaPart}&mode=walk`;
+}
+
+function osmBounds(stops) {
+  const lats = stops.map((item) => item.lat);
+  const lons = stops.map((item) => item.lon);
+  const minLat = Math.min(...lats) - 0.02;
+  const maxLat = Math.max(...lats) + 0.02;
+  const minLon = Math.min(...lons) - 0.02;
+  const maxLon = Math.max(...lons) + 0.02;
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${minLon}%2C${minLat}%2C${maxLon}%2C${maxLat}&layer=mapnik`;
+}
+
+function routeSection(stops) {
+  if (stops.length < 2) {
+    const focus = stops[0];
+    if (!focus) return "";
+    return `<section class="panel"><h3>本周主线集合点</h3><p class="lede">${esc(focus.title)} · ${esc(focus.meetup)}</p>${mapBlock(focus.lat, focus.lon, focus.meetup)}</section>`;
+  }
+  return `
+    <section class="panel">
+      <span class="kicker">多点路线</span>
+      <h3>按时间串起来的 ${stops.length} 站</h3>
+      <p class="lede">把当天活动排成一条能走的线。坐标是估算点，用来看先后和方位，不是室内精细定位。</p>
+      ${routeSvg(stops)}
+      <ol class="route-list">
+        ${stops
+          .map(
+            (item, index) =>
+              `<li data-open="${item.id}"><b>${index + 1}. ${esc(item.title)}</b><span>${item.time} · ${esc(item.meetup)}</span></li>`
+          )
+          .join("")}
+      </ol>
+      <div class="row-actions">
+        <a class="secondary-btn" href="${amapRoute(stops)}" target="_blank" rel="noopener">高德走这条线</a>
+        <a class="ghost-btn" href="${osmLink(stops[0].lat, stops[0].lon)}" target="_blank" rel="noopener">放大起点</a>
+      </div>
+      <iframe class="map-frame" title="路线范围" src="${osmBounds(stops)}" loading="lazy"></iframe>
+    </section>
+  `;
+}
+
+function indoorBackups(prefs, excludeIds) {
+  return GUIDE_DATA.activities
+    .filter(
+      (item) =>
+        item.city === prefs.city &&
+        item.indoor &&
+        item.cost <= prefs.budget &&
+        prefs.people >= item.minPeople &&
+        prefs.people <= item.maxPeople &&
+        !excludeIds.includes(item.id)
+    )
+    .slice(0, 3);
+}
+
+function rainSection(prefs, rec) {
+  const day = dayWeather(prefs);
+  const backups = indoorBackups(prefs, rec.list.map((item) => item.id));
+  if (!backups.length) {
+    if (day.outdoorOk) return "";
+    return `<section class="panel rain-panel"><span class="kicker">雨天备选</span><h3>室内选项已经都在上面的推荐里</h3><p class="lede">把预算调宽，或再加一个兴趣，才能看到更多展馆和剧场。</p><button class="primary-btn" data-go="#/plan">改偏好</button></section>`;
+  }
+  return `
+    <section class="panel rain-panel">
+      <span class="kicker">雨天备选</span>
+      <h3>${day.outdoorOk ? "如果这天下雨，改走室内线" : "这天偏湿，优先走这套室内备选"}</h3>
+      <p class="lede">${
+        day.outdoorOk
+          ? "主线可以出门。真下雨时，把徒步和露天市集换成下面这几个室内点就行。"
+          : "按你的预算和人数筛过的室内活动。户外先搁下，避免淋着走完全程。"
+      }</p>
+      ${backups
+        .map(
+          (item) =>
+            `<div class="list-item" data-open="${item.id}"><div><b>${esc(item.title)}</b><div class="lede">${item.category} · ${formatCost(item.cost)} · ${esc(item.meetup)}</div></div><span class="tag">室内</span></div>`
+        )
+        .join("")}
+    </section>
+  `;
+}
+
+function emptyState(title, body, actionLabel, actionHash) {
+  return `<section class="empty"><h2>${esc(title)}</h2><p>${esc(body)}</p><button class="primary-btn" data-go="${actionHash}">${esc(actionLabel)}</button></section>`;
+}
+
+function weatherBar(prefs, extra = "") {
+  const bundle = getWeather(prefs.city);
+  const current = dayWeather(prefs);
+  const days = [bundle.saturday, bundle.sunday];
   return `
     <section class="weather-bar">
       <div>
-        <strong>${esc(weather.text)}</strong>
-        <div>${esc(weather.tip)}</div>
-        <div class="weather-source">${weather.source === "Open-Meteo" ? "实时预报 · Open-Meteo" : "备用天气 · 网络未连通时使用"}</div>
+        <div class="weather-days">
+          ${days
+            .map(
+              (day) =>
+                `<button class="weather-day ${prefs.weekendDay === day.day ? "active" : ""}" data-weekend-day="${day.day}">${day.day} ${day.sky} ${day.temp}°C</button>`
+            )
+            .join("")}
+        </div>
+        <strong>${esc(current.text)}</strong>
+        <div>${esc(current.tip)}</div>
+        <div class="weather-source">${bundle.source === "Open-Meteo" ? "实时预报 · Open-Meteo · 点上面切换周六/周日" : "备用天气 · 网络未连通时使用"}</div>
       </div>
       ${extra}
     </section>
@@ -324,7 +524,7 @@ function scoreActivity(item, prefs, weather) {
 }
 
 function recommend(prefs) {
-  const weather = getWeather(prefs.city);
+  const weather = dayWeather(prefs);
   const cityItems = GUIDE_DATA.activities.filter((item) => item.city === prefs.city);
   const ranked = cityItems
     .map((item) => ({ item, score: scoreActivity(item, prefs, weather) }))
@@ -389,7 +589,6 @@ function shell(active, content) {
 
 function renderHome() {
   const prefs = getPrefs();
-  const weather = getWeather(prefs.city);
   const checkins = getCheckins();
   const teams = getTeams();
   const session = getSession();
@@ -410,7 +609,7 @@ function renderHome() {
         <div class="stat"><b>${checkins.length}</b><span>${session ? "我的打卡" : "本地打卡"}</span></div>
       </div>
     </section>
-    ${weatherBar(weather)}
+    ${weatherBar(prefs)}
     <section class="panel">
       <h3>换一座城市看看</h3>
       <div class="choice-row" data-field="city">
@@ -449,6 +648,13 @@ function renderPlan() {
           ${GUIDE_DATA.cities
             .map((city) => `<button class="chip ${prefs.city === city ? "active" : ""}" data-value="${city}">${city}</button>`)
             .join("")}
+        </div>
+      </div>
+      <div class="field">
+        <label>出行日</label>
+        <div class="choice-row" data-field="weekendDay">
+          <button class="chip ${prefs.weekendDay === "周六" ? "active" : ""}" data-value="周六">周六</button>
+          <button class="chip ${prefs.weekendDay === "周日" ? "active" : ""}" data-value="周日">周日</button>
         </div>
       </div>
       <div class="field">
@@ -545,32 +751,32 @@ function cardHtml(item) {
 function renderResults() {
   const prefs = getPrefs();
   const rec = recommend(prefs);
-  const focus = rec.list[0];
+  const stops = routeStops(rec.list);
+  const day = rec.weather;
   app.innerHTML = shell(
     "results",
     `
-    ${weatherBar(rec.weather, `<button class="ghost-btn" data-go="#/plan">改偏好</button>`)}
-    <section class="panel">
-      <span class="kicker">${esc(prefs.city)} · ${rec.list.length} 条</span>
+    ${weatherBar(prefs, `<button class="ghost-btn" data-go="#/plan">改偏好</button>`)}
+    ${
+      rec.list.length
+        ? `<section class="panel">
+      <span class="kicker">${esc(prefs.city)} · ${esc(prefs.weekendDay)} · ${rec.list.length} 条</span>
       <h2>按你的条件筛出的周末方案</h2>
       <p class="lede">${
-        rec.relaxed
-          ? "完全匹配的活动不够 6 条，已自动补入同城相近选项。"
-          : "这些活动落在你的城市、预算、人数和天气偏好里。"
+        !day.outdoorOk && prefs.weatherSensitive
+          ? "这天偏湿，已经把户外往后放，并准备了室内备选。"
+          : rec.relaxed
+            ? "完全匹配的活动不够 6 条，已自动补入同城相近选项。"
+            : "这些活动落在你的城市、预算、人数和天气偏好里。"
       }</p>
     </section>
-    ${
-      focus
-        ? `<section class="panel">
-            <h3>本周主线集合点</h3>
-            <p class="lede">${esc(focus.title)} · ${esc(focus.meetup)}</p>
-            ${mapBlock(focus.lat, focus.lon, focus.meetup)}
-          </section>`
-        : ""
-    }
+    ${routeSection(stops)}
+    ${rainSection(prefs, rec)}
     <section class="cards">
       ${rec.list.map(cardHtml).join("")}
-    </section>
+    </section>`
+        : emptyState("这组条件筛空了", "放宽预算、换一天，或暂时关掉天气敏感，就能重新看到活动。", "改偏好", "#/plan")
+    }
     `
   );
 }
@@ -584,8 +790,10 @@ function renderDetail(id) {
     );
     return;
   }
-  const weather = getWeather(item.city);
+  const prefs = { ...getPrefs(), city: item.city };
+  const weather = dayWeather(prefs);
   const checked = getCheckins().some((row) => row.activityId === item.id);
+  const indoorAlts = indoorBackups(prefs, [item.id]).slice(0, 2);
   app.innerHTML = shell(
     "results",
     `
@@ -593,7 +801,7 @@ function renderDetail(id) {
       <span class="kicker">${esc(item.city)} · ${item.category}</span>
       <h2>${esc(item.title)}</h2>
       <p class="lede">${esc(item.desc)}</p>
-      ${weatherBar(weather)}
+      ${weatherBar(prefs)}
       <div class="detail-grid">
         <div><span>费用</span><b>${formatCost(item.cost)}</b></div>
         <div><span>时长</span><b>${item.duration}</b></div>
@@ -602,8 +810,17 @@ function renderDetail(id) {
       </div>
       ${mapBlock(item.lat, item.lon, item.meetup)}
       <p class="lede">建议到场 ${item.time}。${item.indoor ? "室内为主" : "户外为主"} · ${
-        item.indoor || weather.outdoorOk ? "适合出发" : "建议改期或备伞"
+        item.indoor || weather.outdoorOk ? "适合出发" : "这天偏湿，建议改走室内备选或改期"
       }</p>
+      ${
+        !item.indoor && !weather.outdoorOk
+          ? `<div class="lede">雨天备选：${
+              indoorAlts.length
+                ? indoorAlts.map((alt) => esc(alt.title)).join("、")
+                : "回推荐页看室内线"
+            }</div>`
+          : ""
+      }
       <div class="row-actions">
         <button class="primary-btn" data-team-from="${item.id}">组队出发</button>
         <button class="secondary-btn" data-checkin="${item.id}">${checked ? "已打卡" : "去过，打卡"}</button>
@@ -676,7 +893,12 @@ function renderTeam() {
                 </div>`;
               })
               .join("")
-          : `<div class="empty">还没有小队。创建一个周末小队，把队码丢进群里就行。</div>`
+          : emptyState(
+              "还没有小队",
+              "先去推荐里挑一个活动，点「组队出发」。队码只存在这台浏览器里，用来演示组队，不是把同学连到服务器。",
+              "去看推荐",
+              "#/results"
+            )
       }
     </section>
     `
@@ -750,7 +972,12 @@ function renderCheckins() {
                 </div>`;
               })
               .join("")
-          : `<div class="empty">还没有打卡。去过一次活动，就可以在详情页留下足迹。</div>`
+          : emptyState(
+              "还没有打卡",
+              "去过一次就在详情页留下足迹。雨天改去室内展，也算一次有效周末。空着并不代表产品坏了，只是你还没出发。",
+              "去看推荐",
+              "#/results"
+            )
       }
     </section>
     `
@@ -883,28 +1110,28 @@ function renderAccount() {
 function shareText(activityId) {
   const prefs = getPrefs();
   const rec = recommend(prefs);
+  const bundle = getWeather(prefs.city);
   const focus = byId(activityId) || rec.list[0];
   const teams = getTeams();
+  const stops = routeStops(rec.list);
+  const rain = indoorBackups(prefs, rec.list.map((item) => item.id));
   const mapLine =
-    focus && focus.lat
-      ? `导航：${amapLink(focus.lat, focus.lon, focus.meetup)}`
-      : "";
+    stops.length >= 2 ? `路线导航：${amapRoute(stops)}` : focus && focus.lat ? `导航：${amapLink(focus.lat, focus.lon, focus.meetup)}` : "";
   return [
-    `【周末探城】${prefs.city}这一趟怎么走`,
-    rec.weather.text,
+    `【周末探城】${prefs.city} · ${prefs.weekendDay}`,
+    `周六：${bundle.saturday.text}`,
+    `周日：${bundle.sunday.text}`,
     rec.weather.tip,
     `人数：${prefs.people} 人 · 预算：${prefs.budget === 9999 ? "不限" : prefs.budget + " 元内"} · 兴趣：${prefs.interests.join("、")}`,
-    "",
     focus
-      ? `主线：${focus.title}（${formatCost(focus.cost)} / ${focus.duration}）\n集合：${focus.meetup}\n${focus.desc}`
+      ? `主线：${focus.title}（${formatCost(focus.cost)} / ${focus.duration}）\n集合：${focus.meetup}`
       : "还没有选出主线活动。",
+    stops.length ? `路线：${stops.map((item, index) => `${index + 1}.${item.title}`).join(" → ")}` : "",
     mapLine,
-    "",
+    rain.length ? `雨天备选：${rain.map((item) => item.title).join("、")}` : "",
     "备选：",
     ...rec.list.slice(0, 3).map((item, index) => `${index + 1}. ${item.title} · ${formatCost(item.cost)}`),
-    "",
     teams[0] ? `小队：${teams[0].name}（队码 ${teams[0].code}）` : "还没有组队，打开「组队」页一分钟就能建一个。",
-    "",
     "来源：周末探城，天气来自 Open-Meteo。"
   ]
     .filter((line) => line !== "")
@@ -982,6 +1209,14 @@ function bindGlobal() {
     const goBtn = event.target.closest("[data-go]");
     if (goBtn) {
       go(goBtn.dataset.go);
+      return;
+    }
+    const dayBtn = event.target.closest("[data-weekend-day]");
+    if (dayBtn) {
+      const next = getPrefs();
+      next.weekendDay = dayBtn.dataset.weekendDay;
+      savePrefs(next);
+      renderWithoutWeatherLoop();
       return;
     }
     const openBtn = event.target.closest("[data-open]");
