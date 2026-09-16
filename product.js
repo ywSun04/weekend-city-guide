@@ -103,7 +103,7 @@ function routeSection(stops, prefs) {
   if (stops.length === 1) return mapBlock(stops[0], currentPrefs);
   return `
     <section class="panel">
-      <span class="kicker">静态路线卡</span>
+      <span class="kicker">静态路线卡 v20260917c</span>
       <h3>周末候选集合</h3>
       <p class="lede">这不是同一天连走的行程。每个点有自己的建议到场时间和游览时长，请只选其中一个出发。</p>
       <ol class="route-list">

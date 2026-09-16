@@ -348,48 +348,42 @@ function parseClock(time) {
 }
 
 function routeStops(list) {
-  const timed = list.filter((item) => item.lat != null && item.lon != null).slice().sort((a, b) => parseClock(a.time) - parseClock(b.time));
-  const picked = [];
-  const seen = new Set();
-  timed.forEach((item) => {
-    if (picked.length >= 4) return;
-    if (!seen.has(item.category) || picked.length < 2) {
-      picked.push(item);
-      seen.add(item.category);
-    }
-  });
-  timed.forEach((item) => {
-    if (picked.length >= 4) return;
-    if (!picked.includes(item)) picked.push(item);
-  });
-  return picked.slice(0, 4);
+  return (list || []).filter((item) => item.lat != null && item.lon != null).slice(0, 4);
 }
 
-function routeSvg(stops) {
-  if (stops.length < 2) return "";
-  const lats = stops.map((item) => item.lat);
-  const lons = stops.map((item) => item.lon);
-  const minLat = Math.min(...lats);
-  const maxLat = Math.max(...lats);
-  const minLon = Math.min(...lons);
-  const maxLon = Math.max(...lons);
-  const pad = 0.012;
-  const width = 100;
-  const height = 62;
-  const xy = (lon, lat) => {
-    const x = ((lon - minLon + pad) / (maxLon - minLon + pad * 2 || 1)) * width;
-    const y = (1 - (lat - minLat + pad) / (maxLat - minLat + pad * 2 || 1)) * height;
-    return [x.toFixed(1), y.toFixed(1)];
-  };
-  const points = stops.map((item) => xy(item.lon, item.lat));
-  const line = points.map((point) => point.join(",")).join(" ");
-  const dots = points
-    .map(
-      (point, index) =>
-        `<g><circle cx="${point[0]}" cy="${point[1]}" r="3.2" fill="#c44b2b" /><text x="${point[0]}" y="${Number(point[1]) + 1.1}" text-anchor="middle" fill="#fff" font-size="3.2">${index + 1}</text></g>`
-    )
-    .join("");
-  return `<svg class="route-svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="周末多点路线图">${`<polyline fill="none" stroke="#9c3418" stroke-width="0.8" points="${line}" />${dots}`}</svg>`;
+function routeSection(stops, prefs) {
+  const currentPrefs = prefs || getPrefs();
+  if (!stops || !stops.length) return "";
+  const focus = stops[0];
+  if (stops.length === 1 && focus) {
+    return `<section class="panel"><h3>周末候选集合</h3><p class="lede">${esc(focus.title)} · ${esc(focus.meetup)}</p>
+      <p class="lede">${clockText ? clockText(focus.time) : focus.time} 建议到场 · 游览 ${esc(focus.duration || "")}。这是单独选项，不是连走路线。</p>
+      <a class="primary-btn" href="${amapLink(focus.lat, focus.lon, focus.meetup)}" target="_blank" rel="noopener">高德导航</a>
+      <p class="weather-source">演示数据，真实出行请以场馆为准。</p>
+    </section>`;
+  }
+  return `
+    <section class="panel">
+      <span class="kicker">静态路线卡</span>
+      <h3>周末候选集合</h3>
+      <p class="lede">这不是同一天连走的行程。每个点有自己的建议到场时间和游览时长，请只选其中一个出发。</p>
+      <ol class="route-list">
+        ${stops
+          .map((item, index) => {
+            const clock = String(item.time || "").match(/(\d{1,2}:\d{2})/);
+            const clockLabel = clock ? clock[1] : item.time;
+            return `<li>
+              <b>${index + 1}. ${esc(item.title)}</b>
+              <span>${clockLabel} 建议到场 · 游览 ${esc(item.duration || "")} · 市中心出发估算</span>
+              <span>${esc(item.meetup)}</span>
+              <a class="ghost-btn" href="${amapLink(item.lat, item.lon, item.meetup)}" target="_blank" rel="noopener">高德导航</a>
+            </li>`;
+          })
+          .join("")}
+      </ol>
+      <p class="weather-source">演示数据，真实出行请以场馆为准。</p>
+    </section>
+  `;
 }
 
 function amapRoute(stops) {
@@ -403,45 +397,6 @@ function amapRoute(stops) {
     .join(";");
   const viaPart = via ? `&via=${via}` : "";
   return `https://uri.amap.com/navigation?from=${start.lon},${start.lat},${encodeURIComponent(start.title)}&to=${end.lon},${end.lat},${encodeURIComponent(end.title)}${viaPart}&mode=walk`;
-}
-
-function osmBounds(stops) {
-  const lats = stops.map((item) => item.lat);
-  const lons = stops.map((item) => item.lon);
-  const minLat = Math.min(...lats) - 0.02;
-  const maxLat = Math.max(...lats) + 0.02;
-  const minLon = Math.min(...lons) - 0.02;
-  const maxLon = Math.max(...lons) + 0.02;
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${minLon}%2C${minLat}%2C${maxLon}%2C${maxLat}&layer=mapnik`;
-}
-
-function routeSection(stops) {
-  if (stops.length < 2) {
-    const focus = stops[0];
-    if (!focus) return "";
-    return `<section class="panel"><h3>本周主线集合点</h3><p class="lede">${esc(focus.title)} · ${esc(focus.meetup)}</p>${mapBlock(focus.lat, focus.lon, focus.meetup)}</section>`;
-  }
-  return `
-    <section class="panel">
-      <span class="kicker">多点路线</span>
-      <h3>按时间串起来的 ${stops.length} 站</h3>
-      <p class="lede">把当天活动排成一条能走的线。坐标是估算点，用来看先后和方位，不是室内精细定位。</p>
-      ${routeSvg(stops)}
-      <ol class="route-list">
-        ${stops
-          .map(
-            (item, index) =>
-              `<li data-open="${item.id}"><b>${index + 1}. ${esc(item.title)}</b><span>${item.time} · ${esc(item.meetup)}</span></li>`
-          )
-          .join("")}
-      </ol>
-      <div class="row-actions">
-        <a class="secondary-btn" href="${amapRoute(stops)}" target="_blank" rel="noopener">高德走这条线</a>
-        <a class="ghost-btn" href="${osmLink(stops[0].lat, stops[0].lon)}" target="_blank" rel="noopener">放大起点</a>
-      </div>
-      <iframe class="map-frame" title="路线范围" src="${osmBounds(stops)}" loading="lazy"></iframe>
-    </section>
-  `;
 }
 
 function indoorBackups(prefs, excludeIds) {
