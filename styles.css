@@ -247,11 +247,19 @@ h1 {
 .weather-bar {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
   padding: 16px 18px;
   margin-bottom: 14px;
   background: var(--moss-soft);
   border-color: #cfe0d3;
+}
+
+.weather-bar > .ghost-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-size: 13px;
+  padding: 8px 14px;
 }
 
 .weather-bar strong {
@@ -337,9 +345,10 @@ h1 {
   color: #fffaf2;
 }
 
-.cta-bar .kicker {
-  background: #c44b2b;
-  color: #fff;
+.cta-bar .ghost-btn {
+  white-space: nowrap;
+  font-size: 13px;
+  color: #f6efe4;
 }
 
 .reason-row {
