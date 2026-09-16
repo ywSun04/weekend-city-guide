@@ -316,6 +316,52 @@ h1 {
   margin-top: 12px;
 }
 
+.cta-bar,
+.route-card,
+.poster,
+.demo-banner,
+.plan-b {
+  background: var(--paper-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 16px;
+}
+
+.cta-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  background: #1c1712;
+  color: #fffaf2;
+}
+
+.cta-bar .kicker {
+  background: #c44b2b;
+  color: #fff;
+}
+
+.reason-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0;
+}
+
+.reason {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--moss-soft);
+  color: var(--moss);
+  font-size: 12px;
+}
+
+.poster h1 {
+  font-size: 32px;
+}
+
 .map-wrap {
   margin: 12px 0 4px;
 }

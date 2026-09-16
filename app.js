@@ -641,7 +641,7 @@ function renderPlan() {
     <section class="panel">
       <span class="kicker">STEP 01</span>
       <h2>告诉我这周末怎么玩</h2>
-      <p class="lede">选择会直接筛推荐。账号可选，不登录也能用完全部功能。</p>
+      <p class="lede">选择会硬筛推荐：兴趣、预算、人数、雨天室内。不匹配的活动不会被拿来凑数。</p>
       <div class="field">
         <label>城市</label>
         <div class="choice-row" data-field="city">
