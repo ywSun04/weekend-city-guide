@@ -357,7 +357,7 @@ function routeSection(stops, prefs) {
   const focus = stops[0];
   if (stops.length === 1 && focus) {
     return `<section class="panel"><h3>周末候选集合</h3><p class="lede">${esc(focus.title)} · ${esc(focus.meetup)}</p>
-      <p class="lede">${clockText ? clockText(focus.time) : focus.time} 建议到场 · 游览 ${esc(focus.duration || "")}。这是单独选项，不是连走路线。</p>
+      <p class="lede">${(String(focus.time || "").match(/(\d{1,2}:\d{2})/) || [focus.time])[0]} 建议到场 · 游览 ${esc(focus.duration || "")}。这是单独选项，不是连走路线。</p>
       <a class="primary-btn" href="${amapLink(focus.lat, focus.lon, focus.meetup)}" target="_blank" rel="noopener">高德导航</a>
       <p class="weather-source">演示数据，真实出行请以场馆为准。</p>
     </section>`;
